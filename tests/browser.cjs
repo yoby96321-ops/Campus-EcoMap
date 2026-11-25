@@ -21,6 +21,7 @@ async function run() {
       const record = {
         options: dialog.querySelector('.order-panel select')?.options.length ?? 0,
         time: Boolean(dialog.querySelector('.seat-estimate .arrival-parts')),
+        externalGoogleDirections: Boolean(dialog.querySelector('.store-map .actions a')),
         seatSource: [...dialog.querySelectorAll('a')].some(link => link.textContent.includes('席數來源')),
         seats: dialog.querySelector('.seat-output')?.textContent ?? '',
         wrongAddressButton: [...dialog.querySelectorAll('a')].some(link =>
@@ -30,7 +31,7 @@ async function run() {
       return record;
     }));
     assert.equal(audited.length,50);
-    assert.ok(audited.every(row => row.options > 0 && row.time && !row.seatSource && row.seats.includes('席') && !row.wrongAddressButton));
+    assert.ok(audited.every(row => row.options > 0 && row.time && !row.externalGoogleDirections && !row.seatSource && row.seats.includes('席') && !row.wrongAddressButton));
     const images = page.locator('.card img');
     assert.equal(await images.count(),50);
     assert.equal(await images.evaluateAll(async photos => {
@@ -95,9 +96,7 @@ async function run() {
     await page.getByRole('button',{name:'恢復校區距離'}).click();
     assert.equal(new URL(await map.getAttribute('src')).searchParams.get('daddr'),mapUrl.searchParams.get('daddr'));
     assert.equal(await page.locator('dialog').isVisible(),true);
-    const google = page.getByRole('link',{name:/在 Google 地圖查看.*路線/});
     await page.getByLabel('交通方式').selectOption('transit');
-    assert.equal(new URL(await google.getAttribute('href')).searchParams.get('travelmode'),'transit');
     assert.equal(new URL(await map.getAttribute('src')).searchParams.get('dirflg'),'r');
     assert.equal(await page.locator('[data-emission="traffic"]').textContent(),'僅提供餐點估算');
     await page.getByLabel('交通方式').selectOption('scooter');

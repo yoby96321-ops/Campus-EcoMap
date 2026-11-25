@@ -252,8 +252,7 @@ function buildStoreMap(item, trip) {
   showStore.type = 'button';
   showStore.hidden = true;
   const actions = el('div','','actions');
-  const google = link('在 Google 地圖查看路線 ↗',googleDirectionsUrl(item,trip.mode));
-  actions.append(locate,showStore,google);
+  actions.append(locate,showStore);
   const introduction = '地圖預設從三民校區出發。按「顯示我的位置與路線」並允許定位後，座標會送至 Google 地圖及 OpenStreetMap 路線服務。';
   const status = el('p',introduction,'muted route-status');
   status.setAttribute('role','status');
@@ -266,13 +265,11 @@ function buildStoreMap(item, trip) {
 
   trip.refresh = async () => {
     const start = trip.located ? origin : undefined;
-    google.href = googleDirectionsUrl(item,trip.mode,start);
     const embed = googleDirectionsEmbedUrl(item,trip.mode,start);
     if (map.src !== embed) map.src = embed;
-    google.textContent = '在 Google 地圖查看' + modes[trip.mode][0] + '路線 ↗';
     if (!trip.located) {
       if (trip.mode === 'transit') {
-        status.textContent = '在下方查看大眾運輸路線，點「在 Google 地圖查看」可開啟詳細班次與轉乘。';
+        status.textContent = '下方地圖顯示大眾運輸路線。';
       } else {
         status.textContent = introduction;
       }
@@ -284,7 +281,7 @@ function buildStoreMap(item, trip) {
     const mode = trip.mode;
     const label = modes[mode][0];
     if (mode === 'transit') {
-      status.textContent = '在下方查看大眾運輸路線，詳細班次、轉乘和距離可開啟 Google 地圖查看。';
+      status.textContent = '下方地圖顯示從你的位置出發的大眾運輸路線。';
       trip.update(null,'大眾運輸路線與距離由 Google 地圖提供。');
       return;
     }
