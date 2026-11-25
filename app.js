@@ -117,7 +117,7 @@ $('my-location').addEventListener('click',() => {
   },unavailable,{timeout:10000,maximumAge:60000});
 });
 const mealAmount = value => value.toFixed(3) + ' kg CO₂e';
-function buildOrder(item) {
+function buildOrder(item, trip) {
   const panel = el('section','','order-panel');
   const menu = storeMenus[item.name];
   const pick = el('select');
@@ -134,7 +134,8 @@ function buildOrder(item) {
     caption.append(input);
     fields.append(caption);
   }
-  const km = roundTripDistance(item);
+  const campusKm = roundTripDistance(item);
+  let km = campusKm;
   const distance = el('p',distanceText(item) +
     (item.walking ? '。各交通方式使用同一段步行距離比較，實際車行路線可能不同。' : ''),'muted');
   const summary = el('div','','order-summary');
@@ -158,8 +159,11 @@ function buildOrder(item) {
   const comparison = el('details');
   const transportRows = el('ul');
   comparison.append(el('summary','比較四種交通方式'),transportRows);
-  transportRows.append(...Object.values(modes).map(([label,factor]) =>
-    el('li',label + ' ' + (km == null ? '僅提供餐點估算' : mealAmount(km * factor)))));
+  function updateComparison() {
+    comparison.hidden = trip.located;
+    transportRows.replaceChildren(...Object.values(modes).map(([label,factor]) =>
+      el('li',label + ' ' + (campusKm == null ? '僅提供餐點估算' : mealAmount(campusKm * factor)))));
+  }
   function calculate() {
     const profile = mealProfiles[pick.value];
     if (menuSource) menuSource.href = menu.items[pick.selectedIndex]?.[2] ?? menu.source;
@@ -186,64 +190,185 @@ function buildOrder(item) {
     fields,distance,summary,assumptions,comparison);
   if (menu.modeled) panel.prepend(el('p','同店型餐點情境 · 僅供碳排估算，實際供應以門市為準。','muted'));
   if (menuSource) panel.append(menuSource);
+  mode.addEventListener('change',() => {
+    trip.mode = mode.value;
+    trip.refresh?.();
+  });
+  trip.update = (meters, description) => {
+    km = trip.located ? (meters == null ? null : meters / 1000) : campusKm;
+    distance.textContent = description;
+    updateComparison();
+    calculate();
+  };
+  updateComparison();
   calculate();
   return panel;
 }
 
 
-function buildStoreMap(item) {
+let nextRouteRequest = 0;
+async function fetchStoreRoute(origin, destination, mode, signal) {
+  const costing = {walk:'pedestrian',bike:'bicycle',scooter:'motor_scooter',car:'auto'}[mode];
+  const locations = [origin,destination,origin].map(([lat,lon]) => ({lat,lon}));
+  const url = new URL('https://valhalla1.openstreetmap.de/route');
+  url.searchParams.set('json',JSON.stringify({locations,costing,format:'osrm',shape_format:'geojson'}));
+  const now = Date.now();
+  const delay = Math.max(0,nextRouteRequest - now);
+  nextRouteRequest = now + delay + 1050;
+  if (delay) await new Promise(resolve => setTimeout(resolve,delay));
+  if (signal.aborted) throw signal.reason;
+  const response = await fetch(url,{signal,headers:{'X-Client-Id':'yoby96321-ops.github.io/Campus-EcoMap'}});
+  if (!response.ok) throw new Error('Routing request failed');
+  const result = await response.json();
+  const route = result.routes?.[0];
+  if (result.code !== 'Ok' || route?.legs?.length !== 2 ||
+      !route.legs.every(leg => Number.isFinite(leg.distance) && leg.distance >= 0) ||
+      !route.geometry?.coordinates?.length) throw new Error('Route unavailable');
+  return route;
+}
+
+function buildStoreMap(item, trip) {
   const section = el('section','','store-map');
   const map = el('iframe');
   map.title = item.name + '的 Google 地圖';
   map.loading = 'lazy';
   map.referrerPolicy = 'no-referrer';
   map.src = mapEmbedUrl(item);
-  const locate = el('button','顯示我的位置','button');
+  const routeMap = el('div','','route-map');
+  routeMap.hidden = true;
+  routeMap.setAttribute('aria-label','位置及往返路線地圖');
+  const locate = el('button','顯示我的位置與路線','button');
   locate.type = 'button';
-  const showStore = el('button','顯示店家位置','outline');
+  const showStore = el('button','恢復校區距離','outline');
   showStore.type = 'button';
   showStore.hidden = true;
   const actions = el('div','','actions');
   actions.append(locate,showStore);
-  let request = 0;
+  const introduction = '按「顯示我的位置與路線」後，座標會送至 OpenStreetMap 路線服務，依上方交通方式規劃往返路線。';
+  const status = el('p',introduction,'muted route-status');
+  status.setAttribute('role','status');
+  const destination = item.walking?.point ?? shopPoints[item.name];
+  let origin;
+  let locationRequest = 0;
+  let controller;
+  let leaflet;
+  let paths;
+  let trackingClose = false;
+
+  function showPoints() {
+    if (!window.L) return;
+    routeMap.hidden = false;
+    map.hidden = true;
+    leaflet?.remove();
+    leaflet = L.map(routeMap,{scrollWheelZoom:false});
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      maxZoom:19,
+      attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://www.openstreetmap.org/fixthemap">修正地圖</a>'
+    }).addTo(leaflet);
+    paths = L.layerGroup().addTo(leaflet);
+    for (const [point,label,color] of [[origin,'我的位置','#1955a0'],[destination,item.name,'#a72e27']]) {
+      L.circleMarker(point,{radius:8,color:'white',weight:2,fillColor:color,fillOpacity:1})
+        .addTo(leaflet).bindTooltip(el('span',label),{permanent:true,direction:'top',offset:[0,-8]});
+    }
+    leaflet.fitBounds([origin,destination],{padding:[24,36],maxZoom:17});
+  }
+
+  trip.refresh = async () => {
+    if (!trip.located) return;
+    controller?.abort();
+    paths?.clearLayers();
+    const current = new AbortController();
+    controller = current;
+    const mode = trip.mode;
+    const label = modes[mode][0];
+    if (!destination) {
+      status.textContent = '這家店目前使用店名定位，請在地圖確認門市。';
+      trip.update(null,'門市沒有可用座標，暫以餐點估算。');
+      return;
+    }
+    const loading = '正在查詢' + label + '往返路線…';
+    trip.update(null,loading);
+    status.textContent = loading;
+    const timer = setTimeout(() => current.abort('timeout'),12000);
+    try {
+      const route = await fetchStoreRoute(origin,destination,mode,current.signal);
+      if (controller !== current || !section.isConnected || !section.closest('dialog').open) return;
+      const [out,back] = route.legs.map(leg => leg.distance);
+      const km = meters => (meters / 1000).toFixed(2) + ' km';
+      const detail = label + ' · 去程 ' + km(out) + ' · 回程 ' + km(back) + ' · 來回 ' + km(out + back);
+      status.textContent = detail + (leaflet ? '' : '。地圖元件載入失敗。');
+      trip.update(out + back,detail);
+      if (paths) {
+        const line = L.geoJSON(route.geometry,{style:{color:'#235cad',weight:5}}).addTo(paths);
+        leaflet.fitBounds(line.getBounds().extend(origin).extend(destination),{padding:[24,36],maxZoom:17});
+      }
+    } catch {
+      if (controller !== current || !section.isConnected || !section.closest('dialog').open) return;
+      status.textContent = label + '路線暫時無法取得，可切換交通方式或重新定位。';
+      trip.update(null,status.textContent);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   showStore.addEventListener('click',() => {
-    request++;
-    map.src = mapEmbedUrl(item);
-    map.title = item.name + '的 Google 地圖';
+    locationRequest++;
+    const prior = controller;
+    controller = null;
+    prior?.abort();
+    leaflet?.remove();
+    leaflet = paths = null;
+    routeMap.hidden = true;
+    map.hidden = false;
+    trip.located = false;
+    trip.update(null,distanceText(item) + (item.walking ? '（三民校區步行距離參考）' : ''));
+    status.textContent = introduction;
     locate.disabled = false;
-    locate.textContent = '顯示我的位置';
+    locate.textContent = '顯示我的位置與路線';
     locate.focus();
     showStore.hidden = true;
-    status.textContent = '目前顯示店家位置。';
   });
-  const status = el('p','地圖需連網。按「顯示我的位置」並同意定位後，座標會傳給 Google，在這張地圖上標示你的所在位置。','muted');
-  status.setAttribute('role','status');
-  locate.addEventListener('click', () => {
-    const current = ++request;
+  locate.addEventListener('click',() => {
+    const current = ++locationRequest;
+    const active = () => current === locationRequest && section.isConnected && section.closest('dialog').open;
     const unavailable = () => {
-      if (current !== request) return;
+      if (!active()) return;
       locate.disabled = false;
-      status.textContent = '無法取得位置。請確認瀏覽器已允許定位，店家位置仍可查看。';
+      status.textContent = '無法取得位置。請確認瀏覽器已允許定位。';
     };
     if (!navigator.geolocation) return unavailable();
     locate.disabled = true;
     status.textContent = '正在取得你的裝置位置…';
+    const dialog = section.closest('dialog');
+    if (!trackingClose) {
+      trackingClose = true;
+      dialog.addEventListener('close',() => {
+        locationRequest++;
+        controller?.abort();
+        leaflet?.remove();
+      },{once:true});
+    }
     navigator.geolocation.getCurrentPosition(({coords}) => {
-      if (current !== request || !section.isConnected || !section.closest('dialog').open) return;
-      map.src = mapEmbedUrl(item,[coords.latitude,coords.longitude]);
-      map.title = '我的位置 Google 地圖';
+      if (!active()) return;
+      origin = [coords.latitude,coords.longitude];
+      trip.located = true;
       showStore.hidden = false;
       locate.textContent = '更新我的位置';
       locate.disabled = false;
-      status.textContent = '目前顯示你的裝置位置。可在卡片內切回店家位置。';
+      if (destination) showPoints();
+      trip.refresh();
     },unavailable,{enableHighAccuracy:true,timeout:10000,maximumAge:60000});
   });
-  section.append(el('h3','位置地圖'),actions,status,map);
+  const attribution = el('p','','muted');
+  attribution.append(link('OpenStreetMap 路線資料','https://www.openstreetmap.org/copyright'),' · ',
+    link('修正地圖','https://www.openstreetmap.org/fixthemap'));
+  attribution.querySelectorAll('a').forEach(anchor => anchor.classList.remove('button'));
+  section.append(el('h3','位置與往返路線'),actions,status,map,routeMap,attribution);
   return section;
 }
 
 function openDetail(item) {
   const dialog = $('detail');
+  const trip = {mode:'scooter',located:false};
   const title = el('h2', item.name);
   title.id = 'detail-title';
   const statuses = el('dl');
@@ -268,12 +393,12 @@ function openDetail(item) {
   }
   const actions = el('div','','actions');
 
-  $('detail-body').replaceChildren(title,...(item.note ? [el('p',item.note)] : []),el('p',[item.address,price(item),distanceText(item)].filter(Boolean).join(' · ')),buildOrder(item),statuses,buildSeatEstimate(item));
+  $('detail-body').replaceChildren(title,...(item.note ? [el('p',item.note)] : []),el('p',[item.address,price(item),distanceText(item)].filter(Boolean).join(' · ')),buildOrder(item,trip),statuses,buildSeatEstimate(item));
   if (item.source) {
     actions.append(link(item.sourceName + ' ↗', item.source));
     $('detail-body').append(actions);
   }
-  const map = buildStoreMap(item);
+  const map = buildStoreMap(item,trip);
   if (item.walking) {
     const route = item.walking;
     const description = el('p','起點為三民路「國立臺中科技大學」站。' +

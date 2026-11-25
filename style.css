@@ -89,3 +89,5 @@ nav a:hover{text-decoration:underline;text-underline-offset:5px}
   .meal-results{padding-inline:8px;gap:.5rem;font-size:.875rem}
   .store-map iframe{height:280px}
 }
+
+.store-map .route-map{width:100%;height:clamp(270px,45vh,340px);margin-top:10px;border:1px solid var(--line);border-radius:12px;background:#f0f5ff}

@@ -65,11 +65,29 @@ async function run() {
     const mapUrl = new URL(await map.getAttribute('src'));
     assert.equal(mapUrl.searchParams.get('q'),'一中豐仁冰 臺中市北區育才街3巷4號之6');
     assert.equal(mapUrl.searchParams.get('output'),'embed');
-    await page.getByRole('button',{name:'顯示我的位置'}).click();
-    await page.waitForFunction(() => document.querySelector('dialog iframe').title.startsWith('我的位置'));
-    const route = new URL(await map.getAttribute('src')).searchParams;
-    assert.equal(route.get('q'),'24.14754,120.68437');
-    await page.getByRole('button',{name:'顯示店家位置'}).click();
+    const routeRequests = [];
+    await page.route('https://valhalla1.openstreetmap.de/**', async request => {
+      const url = new URL(request.request().url());
+      const payload = JSON.parse(url.searchParams.get('json'));
+      routeRequests.push(payload);
+      const bike = payload.costing === 'bicycle';
+      await request.fulfill({json:{code:'Ok',routes:[{
+        legs:[{distance:bike ? 500 : 800},{distance:bike ? 650 : 1120}],
+        geometry:{type:'LineString',coordinates:[[120.68437,24.14754],[120.686528,24.14896],[120.68437,24.14754]]}
+      }]}});
+    });
+    await page.getByRole('button',{name:'顯示我的位置與路線'}).click();
+    await page.getByText(/機車 · 去程 0\.80 km/).first().waitFor();
+    assert.deepEqual(routeRequests[0].locations,[
+      {lat:24.14754,lon:120.68437},{lat:24.14896,lon:120.686528},{lat:24.14754,lon:120.68437}
+    ]);
+    assert.equal(routeRequests[0].costing,'motor_scooter');
+    assert.equal(await page.locator('[data-emission="traffic"]').textContent(),'0.173 kg CO₂e');
+    await page.getByLabel('交通方式').selectOption('bike');
+    await page.getByText(/單車 · 去程 0\.50 km · 回程 0\.65 km · 來回 1\.15 km/).first().waitFor();
+    assert.equal(await page.locator('[data-emission="traffic"]').textContent(),'0.000 kg CO₂e');
+    await page.getByLabel('交通方式').selectOption('scooter');
+    await page.getByRole('button',{name:'恢復校區距離'}).click();
     assert.equal(new URL(await map.getAttribute('src')).searchParams.get('q'),mapUrl.searchParams.get('q'));
     assert.equal(await page.locator('dialog').isVisible(),true);
     assert.equal(await page.getByRole('link',{name:/Google Maps 路線/}).count(),0);
