@@ -1,0 +1,140 @@
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const {pathToFileURL} = require('node:url');
+const {chromium} = require(process.env.ECOMAP_PLAYWRIGHT || 'playwright');
+const fs = require('node:fs/promises');
+
+async function run() {
+  const browser = await chromium.launch({executablePath:process.env.ECOMAP_BROWSER});
+  try {
+    const context = await browser.newContext({viewport:{width:1440,height:1000},offline:true,geolocation:{latitude:24.14754,longitude:120.68437},permissions:['geolocation']});
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(pathToFileURL(path.resolve(__dirname,'../index.html')).href);
+    await fs.mkdir(path.resolve(__dirname,'../qa'),{recursive:true});
+    await page.screenshot({path:path.resolve(__dirname,'../qa/desktop.png'),fullPage:true});
+    assert.equal(await page.locator('.card').count(),50);
+    const audited = await page.locator('.card button').evaluateAll(buttons => buttons.map(button => {
+      button.click();
+      const dialog = document.querySelector('#detail');
+      const record = {
+        options: dialog.querySelector('.order-panel select')?.options.length ?? 0,
+        time: Boolean(dialog.querySelector('.seat-estimate input[type=time]')),
+        seatSource: [...dialog.querySelectorAll('a')].some(link => link.textContent.includes('席數來源')),
+        seats: dialog.querySelector('.seat-output')?.textContent ?? '',
+        wrongAddressButton: [...dialog.querySelectorAll('a')].some(link =>
+          link.textContent.includes('門市地址來源') && link.href.includes('B80Gl3tRJy8'))
+      };
+      dialog.close();
+      return record;
+    }));
+    assert.equal(audited.length,50);
+    assert.ok(audited.every(row => row.options > 0 && row.time && !row.seatSource && row.seats.includes('席') && !row.wrongAddressButton));
+    const images = page.locator('.card img');
+    assert.equal(await images.count(),50);
+    assert.equal(await images.evaluateAll(async photos => {
+      photos.forEach(photo => { photo.loading = 'eager'; });
+      await Promise.all(photos.map(photo => photo.decode()));
+      return photos.every(photo => photo.naturalWidth > 0);
+    }),true);
+    assert.equal(await page.getByText(/步行去程約/).count(),48);
+    await page.locator('#sort').selectOption('default');
+    const reordered = await page.evaluate(() => {
+      document.getAnimations().forEach(animation => animation.finish());
+      const card = document.querySelector('#cards article[data-store*="一中大本營"]');
+      document.querySelector('#campus-origin').click();
+      return card === document.querySelector('#cards article:first-child') &&
+        card.getAnimations().length > 0 &&
+        document.querySelector('#cards article').textContent.includes('一中大本營');
+    });
+    assert.equal(reordered,true);
+    await page.locator('#my-location').click();
+    await page.waitForFunction(() => document.querySelector('#cards article')?.textContent.includes('豐味綠豆沙'));
+    await page.locator('#reset-origin').click();
+    await page.getByRole('checkbox',{name:/座位/}).check();
+    assert.equal(await page.locator('.card').count(),17);
+    await page.getByRole('checkbox',{name:/座位/}).uncheck();
+    await page.locator('#query').fill('豐仁冰');
+    assert.equal(await page.locator('.card').count(),1);
+    const detail = page.getByRole('button',{name:'查看店家 一中豐仁冰'});
+    await detail.focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('dialog').isVisible(),true);
+    const map = page.locator('dialog iframe[title*="Google 地圖"]');
+    const mapUrl = new URL(await map.getAttribute('src'));
+    assert.equal(mapUrl.searchParams.get('q'),'一中豐仁冰 臺中市北區育才街3巷4號之6');
+    assert.equal(mapUrl.searchParams.get('output'),'embed');
+    await page.getByRole('button',{name:'顯示我的位置'}).click();
+    await page.waitForFunction(() => document.querySelector('dialog iframe').title.startsWith('我的位置'));
+    const route = new URL(await map.getAttribute('src')).searchParams;
+    assert.equal(route.get('q'),'24.14754,120.68437');
+    await page.getByRole('button',{name:'顯示店家位置'}).click();
+    assert.equal(new URL(await map.getAttribute('src')).searchParams.get('q'),mapUrl.searchParams.get('q'));
+    assert.equal(await page.locator('dialog').isVisible(),true);
+    assert.equal(await page.getByRole('link',{name:/Google Maps 路線/}).count(),0);
+    assert.match(await page.locator('.order-panel').textContent(),/步行去程約 0\.27 km · 來回約 0\.54 km/);
+    assert.equal(await page.locator('[data-emission="traffic"]').textContent(),'0.048 kg CO₂e');
+    assert.match(await page.locator('.seat-estimate').textContent(),/18–24 席/);
+    assert.match(await page.locator('.seat-estimate').textContent(),/14:00–17:00/);
+    assert.match(await page.locator('.seat-output').textContent(),/預估剩 1–10 席/);
+    assert.equal(await page.getByLabel(/假設總座位/).count(),0);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('dialog').isVisible(),false);
+    assert.equal(await detail.evaluate(e=>e===document.activeElement),true);
+    await page.locator('#query').fill('統元豆花');
+    await page.getByRole('button',{name:'查看店家 統元豆花'}).click();
+    assert.equal(await page.locator('dialog a[href*="if.nutc.edu.tw"]').count(),0);
+    assert.equal(await page.getByRole('link',{name:/門市地址來源/}).count(),1);
+    assert.equal(await page.locator('dialog iframe[title*="Google 地圖"]').count(),1);
+    assert.match(await page.locator('.seat-estimate').textContent(),/總座位約 20 席/);
+    assert.match(await page.locator('.seat-output').textContent(),/剩 2–8 席/);
+    await page.getByLabel('到店時間').fill('17:30');
+    assert.match(await page.locator('.seat-output').textContent(),/離峰/);
+    await page.getByLabel('到店時間').fill('14:00');
+    await page.getByLabel('日期類型').selectOption('weekend');
+    assert.match(await page.locator('.seat-output').textContent(),/剩 0–5 席/);
+    await page.keyboard.press('Escape');
+    await page.locator('#query').fill('');
+    await page.locator('#kind').selectOption('麵食');
+    assert.equal(await page.locator('.card').count(),5);
+    await page.getByRole('button',{name:'查看店家 日嚐拉麵館'}).click();
+    assert.deepEqual(await page.getByLabel('想點什麼？').locator('option').allTextContents(),['九州豚骨拉麵','蒜香味噌拉麵']);
+    await page.keyboard.press('Escape');
+    await page.locator('#kind').selectOption('鍋物');
+    await page.getByRole('button',{name:'查看店家 泰丘鍋物'}).click();
+    const dish = page.getByLabel('想點什麼？');
+    assert.deepEqual(await dish.locator('option').allTextContents(),['青焰綠咖哩鍋底','皇家冬蔭鍋底','濃純豚骨牛奶鍋底']);
+    const initial = await page.locator('[data-emission="meal"]').textContent();
+    await dish.selectOption('thaiTomYum');
+    assert.notEqual(await page.locator('[data-emission="meal"]').textContent(),initial);
+    assert.match(await page.getByRole('link',{name:/查看品項來源/}).getAttribute('href'),/230xuydq/);
+    assert.equal(await page.locator('#carbon').count(),0);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#dataset').count(),0);
+    await page.locator('#kind').selectOption('');
+    await page.getByRole('button',{name:'查看店家 阿里山鐵道紅茶冰',exact:true}).click();
+    const teaBefore = await page.locator('[data-emission=meal]').textContent();
+    await page.getByLabel('想點什麼？').selectOption('freshTea');
+    assert.notEqual(await page.locator('[data-emission=meal]').textContent(),teaBefore);
+    assert.equal(await page.getByLabel('想點什麼？').locator('option').count(),6);
+    await page.keyboard.press('Escape');
+    await page.locator('#kind').selectOption('');
+    await page.locator('#query').fill('不存在的店名');
+    assert.equal(await page.locator('.card').count(),0);
+    await page.locator('#reset').click();
+    assert.equal(await page.locator('.card').count(),50);
+    assert.deepEqual(errors,[]);
+    for (const width of [320,390,768]) {
+      await page.setViewportSize({width,height:844});
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth),true);
+    }
+    await page.setViewportSize({width:390,height:844});
+    await page.screenshot({path:path.resolve(__dirname,'../qa/mobile.png'),fullPage:true});
+    assert.deepEqual(errors,[]);
+    console.log('PASS: Offline desktop, 320/390/768 px layouts, keyboard and focus return, search, filter, reset, navigation URL, four-mode calculation, zero page errors.');
+  } finally {
+    await browser.close();
+  }
+}
+run().catch(error => { console.error(error); process.exitCode=1; });
