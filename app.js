@@ -279,15 +279,18 @@ function openDetail(item) {
     const description = el('p','起點為三民路「國立臺中科技大學」站。' +
       '去程約 ' + Math.round(route.outMeters) + ' 公尺，回程約 ' + Math.round(route.backMeters) + ' 公尺。' +
       (route.note ? ' ' + route.note : ''),'muted');
-    if (route.source !== 'https://www.youtube.com/watch?v=B80Gl3tRJy8') {
-      description.append(' ',link('門市地址來源 ↗',route.source));
-    }
     map.prepend(description);
+    if (route.source !== 'https://www.youtube.com/watch?v=B80Gl3tRJy8') {
+      const source = el('div','','route-source');
+      source.append(link('門市地址來源 ↗',route.source));
+      description.after(source);
+    }
   }
   $('detail-body').append(map);
   if (item.seatSource) actions.append(link('內用座位來源 ↗',item.seatSource));
   if (item.priceSource) actions.append(link('查看菜單或價格來源 ↗',item.priceSource));
   dialog.showModal();
+  $('detail-body').scrollTop = 0;
 }
 
 function renderCards(animate = false) {

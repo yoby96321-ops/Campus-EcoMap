@@ -128,6 +128,26 @@ async function run() {
     for (const width of [320,390,768]) {
       await page.setViewportSize({width,height:844});
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth),true);
+      await page.getByRole('button',{name:'查看店家 山裏山外',exact:true}).click();
+      const layout = await page.locator('#detail-body').evaluate(body => {
+        const close = document.querySelector('#detail .close');
+        const closeTop = close.getBoundingClientRect().top;
+        const time = body.querySelector('input[type=time]').getBoundingClientRect();
+        const seat = body.querySelector('.seat-estimate').getBoundingClientRect();
+        const map = body.querySelector('iframe').getBoundingClientRect();
+        const bounds = body.getBoundingClientRect();
+        body.scrollTop = body.scrollHeight;
+        return {
+          timeFits: time.width > 0 && time.left >= seat.left && time.right <= seat.right,
+          mapFits: map.width > 0 && map.left >= bounds.left && map.right <= bounds.right,
+          noOverflow: body.scrollWidth <= body.clientWidth,
+          closeStays: body.scrollTop > 0 && close.getBoundingClientRect().top === closeTop,
+          unitsStayTogether: [...body.querySelectorAll('.meal-results dd')].every(value =>
+            getComputedStyle(value).whiteSpace === 'nowrap' && value.scrollWidth <= value.clientWidth)
+        };
+      });
+      assert.deepEqual(layout,{timeFits:true,mapFits:true,noOverflow:true,closeStays:true,unitsStayTogether:true});
+      await page.getByRole('button',{name:'關閉店家詳情'}).click();
     }
     await page.setViewportSize({width:390,height:844});
     await page.screenshot({path:path.resolve(__dirname,'../qa/mobile.png'),fullPage:true});
