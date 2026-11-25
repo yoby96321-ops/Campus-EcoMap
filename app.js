@@ -51,14 +51,25 @@ function buildSeatEstimate(item) {
   const day = el('select');
   day.add(new Option('平日','weekday'));
   day.add(new Option('週末','weekend'));
-  const time = el('input');
-  time.type = 'time';
-  time.value = study?.peak?.[0]?.[0] ?? '12:00';
-  for (const [name,input] of [['日期類型',day],['到店時間',time]]) {
-    const label = el('label',name);
-    label.append(input);
-    controls.append(label);
+  const dayLabel = el('label','日期類型');
+  dayLabel.append(day);
+  const arrival = el('fieldset','','arrival-time');
+  arrival.append(el('legend','到店時間'));
+  const [defaultHour,defaultMinute] = (study.peak[0]?.[0] ?? '12:00').split(':');
+  const hour = el('select');
+  const minute = el('select');
+  for (const [select,label,count,initial] of [[hour,'到店小時',24,defaultHour],[minute,'到店分鐘',60,defaultMinute]]) {
+    select.setAttribute('aria-label',label);
+    for (let index=0; index<count; index++) {
+      const value = String(index).padStart(2,'0');
+      select.add(new Option(value + (select === hour ? ' 時' : ' 分'),value));
+    }
+    select.value = initial;
   }
+  const clock = el('div','','arrival-parts');
+  clock.append(hour,minute);
+  arrival.append(clock);
+  controls.append(dayLabel,arrival);
   const result = el('output','','seat-output');
   result.setAttribute('aria-live','polite');
   const update = () => {
@@ -66,8 +77,9 @@ function buildSeatEstimate(item) {
       result.textContent = '0 席。建議外帶。';
       return;
     }
-    const upper = estimateSeats(high,day.value,time.value,study.peak);
-    const lower = low ? estimateSeats(low,day.value,time.value,study.peak) : upper && {min:0, peak:upper.peak};
+    const time = hour.value + ':' + minute.value;
+    const upper = estimateSeats(high,day.value,time,study.peak);
+    const lower = low ? estimateSeats(low,day.value,time,study.peak) : upper && {min:0, peak:upper.peak};
     result.textContent = lower && upper
       ? '預估剩 ' + lower.min + '–' + upper.max + ' 席（' + (lower.peak ? '推估高峰' : '推估離峰') + '）' +
         (lower.peak ? '。建議提早到或改離峰。' : '。這個時段較有機會入座。')
@@ -158,11 +170,11 @@ function buildOrder(item, trip) {
   assumptions.append(el('summary','查看配方假設'),ingredients);
   const comparison = el('details');
   const transportRows = el('ul');
-  comparison.append(el('summary','比較四種交通方式'),transportRows);
+  comparison.append(el('summary','比較交通方式'),transportRows);
   function updateComparison() {
     comparison.hidden = trip.located;
     transportRows.replaceChildren(...Object.values(modes).map(([label,factor]) =>
-      el('li',label + ' ' + (campusKm == null ? '僅提供餐點估算' : mealAmount(campusKm * factor)))));
+      el('li',label + ' ' + (campusKm == null || factor == null ? '僅提供餐點估算' : mealAmount(campusKm * factor)))));
   }
   function calculate() {
     const profile = mealProfiles[pick.value];
@@ -176,7 +188,8 @@ function buildOrder(item, trip) {
       return;
     }
     const meal = estimateMeal(profile,portions.valueAsNumber);
-    const traffic = km == null ? null : km * modes[mode.value][1];
+    const factor = modes[mode.value][1];
+    const traffic = km == null || factor == null ? null : km * factor;
     for (const [key,value] of Object.entries({
       ingredients:meal.ingredients,cooking:meal.cooking,meal:meal.total,traffic,total:traffic == null ? null : meal.total+traffic
     })) values.get(key).textContent = value == null ? '僅提供餐點估算' : mealAmount(value);
@@ -233,56 +246,50 @@ function buildStoreMap(item, trip) {
   map.title = item.name + '的 Google 地圖';
   map.loading = 'lazy';
   map.referrerPolicy = 'no-referrer';
-  map.src = mapEmbedUrl(item);
-  const routeMap = el('div','','route-map');
-  routeMap.hidden = true;
-  routeMap.setAttribute('aria-label','位置及往返路線地圖');
   const locate = el('button','顯示我的位置與路線','button');
   locate.type = 'button';
   const showStore = el('button','恢復校區距離','outline');
   showStore.type = 'button';
   showStore.hidden = true;
   const actions = el('div','','actions');
-  actions.append(locate,showStore);
-  const introduction = '按「顯示我的位置與路線」後，座標會送至 OpenStreetMap 路線服務，依上方交通方式規劃往返路線。';
+  const google = link('在 Google 地圖查看路線 ↗',googleDirectionsUrl(item,trip.mode));
+  actions.append(locate,showStore,google);
+  const introduction = '地圖預設從三民校區出發。按「顯示我的位置與路線」並允許定位後，座標會送至 Google 地圖及 OpenStreetMap 路線服務。';
   const status = el('p',introduction,'muted route-status');
   status.setAttribute('role','status');
   const destination = item.walking?.point ?? shopPoints[item.name];
   let origin;
   let locationRequest = 0;
   let controller;
-  let leaflet;
-  let paths;
   let trackingClose = false;
 
-  function showPoints() {
-    if (!window.L) return;
-    routeMap.hidden = false;
-    map.hidden = true;
-    leaflet?.remove();
-    leaflet = L.map(routeMap,{scrollWheelZoom:false});
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
-      maxZoom:19,
-      attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://www.openstreetmap.org/fixthemap">修正地圖</a>'
-    }).addTo(leaflet);
-    paths = L.layerGroup().addTo(leaflet);
-    for (const [point,label,color] of [[origin,'我的位置','#1955a0'],[destination,item.name,'#a72e27']]) {
-      L.circleMarker(point,{radius:8,color:'white',weight:2,fillColor:color,fillOpacity:1})
-        .addTo(leaflet).bindTooltip(el('span',label),{permanent:true,direction:'top',offset:[0,-8]});
-    }
-    leaflet.fitBounds([origin,destination],{padding:[24,36],maxZoom:17});
-  }
 
   trip.refresh = async () => {
-    if (!trip.located) return;
+    const start = trip.located ? origin : undefined;
+    google.href = googleDirectionsUrl(item,trip.mode,start);
+    const embed = googleDirectionsEmbedUrl(item,trip.mode,start);
+    if (map.src !== embed) map.src = embed;
+    google.textContent = '在 Google 地圖查看' + modes[trip.mode][0] + '路線 ↗';
+    if (!trip.located) {
+      if (trip.mode === 'transit') {
+        status.textContent = '在下方查看大眾運輸路線，點「在 Google 地圖查看」可開啟詳細班次與轉乘。';
+      } else {
+        status.textContent = introduction;
+      }
+      return;
+    }
     controller?.abort();
-    paths?.clearLayers();
     const current = new AbortController();
     controller = current;
     const mode = trip.mode;
     const label = modes[mode][0];
+    if (mode === 'transit') {
+      status.textContent = '在下方查看大眾運輸路線，詳細班次、轉乘和距離可開啟 Google 地圖查看。';
+      trip.update(null,'大眾運輸路線與距離由 Google 地圖提供。');
+      return;
+    }
     if (!destination) {
-      status.textContent = '這家店目前使用店名定位，請在地圖確認門市。';
+      status.textContent = 'Google 地圖以店名搜尋，請確認門市。';
       trip.update(null,'門市沒有可用座標，暫以餐點估算。');
       return;
     }
@@ -296,12 +303,8 @@ function buildStoreMap(item, trip) {
       const [out,back] = route.legs.map(leg => leg.distance);
       const km = meters => (meters / 1000).toFixed(2) + ' km';
       const detail = label + ' · 去程 ' + km(out) + ' · 回程 ' + km(back) + ' · 來回 ' + km(out + back);
-      status.textContent = detail + (leaflet ? '' : '。地圖元件載入失敗。');
-      trip.update(out + back,detail);
-      if (paths) {
-        const line = L.geoJSON(route.geometry,{style:{color:'#235cad',weight:5}}).addTo(paths);
-        leaflet.fitBounds(line.getBounds().extend(origin).extend(destination),{padding:[24,36],maxZoom:17});
-      }
+      status.textContent = detail + '（OpenStreetMap 路網估算，Google 地圖可能採用不同路線）';
+      trip.update(out + back,status.textContent);
     } catch {
       if (controller !== current || !section.isConnected || !section.closest('dialog').open) return;
       status.textContent = label + '路線暫時無法取得，可切換交通方式或重新定位。';
@@ -315,13 +318,9 @@ function buildStoreMap(item, trip) {
     const prior = controller;
     controller = null;
     prior?.abort();
-    leaflet?.remove();
-    leaflet = paths = null;
-    routeMap.hidden = true;
-    map.hidden = false;
     trip.located = false;
     trip.update(null,distanceText(item) + (item.walking ? '（三民校區步行距離參考）' : ''));
-    status.textContent = introduction;
+    trip.refresh();
     locate.disabled = false;
     locate.textContent = '顯示我的位置與路線';
     locate.focus();
@@ -344,7 +343,6 @@ function buildStoreMap(item, trip) {
       dialog.addEventListener('close',() => {
         locationRequest++;
         controller?.abort();
-        leaflet?.remove();
       },{once:true});
     }
     navigator.geolocation.getCurrentPosition(({coords}) => {
@@ -354,7 +352,6 @@ function buildStoreMap(item, trip) {
       showStore.hidden = false;
       locate.textContent = '更新我的位置';
       locate.disabled = false;
-      if (destination) showPoints();
       trip.refresh();
     },unavailable,{enableHighAccuracy:true,timeout:10000,maximumAge:60000});
   });
@@ -362,7 +359,8 @@ function buildStoreMap(item, trip) {
   attribution.append(link('OpenStreetMap 路線資料','https://www.openstreetmap.org/copyright'),' · ',
     link('修正地圖','https://www.openstreetmap.org/fixthemap'));
   attribution.querySelectorAll('a').forEach(anchor => anchor.classList.remove('button'));
-  section.append(el('h3','位置與往返路線'),actions,status,map,routeMap,attribution);
+  section.append(el('h3','位置與往返路線'),actions,status,map,attribution);
+  trip.refresh();
   return section;
 }
 

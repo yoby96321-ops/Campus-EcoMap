@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {roundTripDistance, storeMenus, seatingFor, estimateSeats, mealProfiles, estimateMeal, features, restaurants, modes, emissions, selectRestaurants, mapEmbedUrl} = require('../data.js');
+const {roundTripDistance, storeMenus, seatingFor, estimateSeats, mealProfiles, estimateMeal, features, restaurants, modes, emissions, selectRestaurants, mapEmbedUrl, googleDirectionsUrl, googleDirectionsEmbedUrl} = require('../data.js');
 
 test('公開店家資料具有唯一 ID、合法距離與設施狀態', () => {
   assert.equal(restaurants.length, 50);
@@ -19,8 +19,8 @@ test('公開店家資料具有唯一 ID、合法距離與設施狀態', () => {
     assert.doesNotMatch(item.source ?? '', /if\.nutc\.edu\.tw/);
   }
 });
-test('四種往返交通係數與 0.5 km 已知答案', () => {
-  assert.deepEqual(Object.values(modes).map(([,rate]) => emissions(0.5, rate)), [0,0,0.09,0.2]);
+test('可量化的往返交通係數與 0.5 km 已知答案', () => {
+  assert.deepEqual(Object.values(modes).filter(([,rate]) => rate != null).map(([,rate]) => emissions(0.5, rate)), [0,0,0.09,0.2]);
   assert.equal(emissions(0, 0.2),0);
 });
 test('拒絕負值、空值、非數值及無限大', () => {
@@ -100,4 +100,19 @@ test('公開店家以各據點步行去回程計算，缺少資料保留空值',
   assert.equal(roundTripDistance({walking:{outMeters:150,backMeters:190}}),0.34);
   const sorted = selectRestaurants(restaurants,'',[],'near');
   assert.ok(sorted.slice(-2).every(shop=>!shop.walking));
+});
+test('五種交通方式正確傳給 Google 地圖', () => {
+  const expected = {walk:'walking',bike:'bicycling',scooter:'two-wheeler',car:'driving',transit:'transit'};
+  for (const [mode,travelMode] of Object.entries(expected)) {
+    const url = new URL(googleDirectionsUrl(restaurants[1],mode,[24.14754,120.68437]));
+    assert.equal(url.pathname,'/maps/dir/');
+    assert.equal(url.searchParams.get('travelmode'),travelMode);
+    assert.equal(url.searchParams.get('origin'),'24.14754,120.68437');
+    assert.match(url.searchParams.get('destination'),/一中豐仁冰/);
+    const embed = new URL(googleDirectionsEmbedUrl(restaurants[1],mode,[24.14754,120.68437]));
+    assert.equal(embed.searchParams.get('saddr'),'24.14754,120.68437');
+    assert.equal(embed.searchParams.get('daddr'),url.searchParams.get('destination'));
+    assert.equal(embed.searchParams.get('dirflg'),{walk:'w',bike:'b',scooter:'l',car:'d',transit:'r'}[mode]);
+  }
+  assert.match(new URL(googleDirectionsUrl(restaurants[1],'transit')).searchParams.get('origin'),/三民校區/);
 });

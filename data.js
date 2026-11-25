@@ -1,6 +1,12 @@
 'use strict';
 const features = { power: '插座', air: '冷氣', wifi: 'Wi-Fi', drink: '飲料', seats: '座位' };
-const modes = { walk: ['步行', 0], bike: ['單車', 0], scooter: ['機車', 0.09], car: ['汽車', 0.20] };
+const modes = {
+  walk:['步行',0,'walking'],
+  bike:['單車',0,'bicycling'],
+  scooter:['機車',0.09,'two-wheeler'],
+  car:['汽車',0.20,'driving'],
+  transit:['大眾運輸',null,'transit']
+};
 const restaurants = [
   { id:'fried', name:'一中豪大雞排', kind:'炸物', art:'fried', source:'https://yizhong.taiwan-hong.com/store_detail.php?id=5', sourceName:'一中商圈店家頁', note:'商圈資料列有雞排及其他炸物。' },
   { id:'ice', name:'一中豐仁冰', kind:'冰品', art:'ice', source:'https://travel.taichung.gov.tw/zh-tw/Shop/Consume/2495/', sourceName:'臺中市觀光旅遊網', address:'臺中市北區育才街3巷4號之6', note:'市府旅遊網介紹酸梅冰與牛奶冰淇淋。' },
@@ -271,6 +277,24 @@ function mapEmbedUrl(restaurant, origin) {
   const destination = restaurant.name + ' ' + (restaurant.address ?? '臺中市北區 一中商圈');
   const query = {q:origin ? origin.join(',') : destination,z:'17'};
   url.search = new URLSearchParams({...query,output:'embed',hl:'zh-TW'});
+  return url.href;
+}
+function googleDirectionsUrl(restaurant, mode, origin) {
+  const destination = restaurant.name + ' ' + (restaurant.address ?? '臺中市北區 一中商圈');
+  const campus = '國立臺中科技大學三民校區 臺中市北區三民路三段129號';
+  const url = new URL('https://www.google.com/maps/dir/');
+  url.search = new URLSearchParams({
+    api:'1',origin:origin ? origin.join(',') : campus,destination,travelmode:modes[mode][2]
+  });
+  return url.href;
+}
+function googleDirectionsEmbedUrl(restaurant, mode, origin) {
+  const {searchParams} = new URL(googleDirectionsUrl(restaurant,mode,origin));
+  const url = new URL('https://www.google.com/maps');
+  url.search = new URLSearchParams({
+    saddr:searchParams.get('origin'),daddr:searchParams.get('destination'),
+    dirflg:{walk:'w',bike:'b',scooter:'l',car:'d',transit:'r'}[mode],output:'embed',hl:'zh-TW'
+  });
   return url.href;
 }
 const shopPoints = {
@@ -622,4 +646,4 @@ function estimateSeats(capacity, day, time, peaks = [['11:30','13:30'],['17:30',
   };
 }
 
-if (typeof module !== 'undefined') module.exports = {roundTripDistance, seatingStudies, seatingFor, storeMenus, straightDistance, estimateSeats, restaurants, modes, features, mealProfiles, estimateMeal, emissions, selectRestaurants, mapEmbedUrl};
+if (typeof module !== 'undefined') module.exports = {roundTripDistance, seatingStudies, seatingFor, storeMenus, straightDistance, estimateSeats, restaurants, modes, features, mealProfiles, estimateMeal, emissions, selectRestaurants, mapEmbedUrl, googleDirectionsUrl, googleDirectionsEmbedUrl};

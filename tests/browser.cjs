@@ -20,7 +20,7 @@ async function run() {
       const dialog = document.querySelector('#detail');
       const record = {
         options: dialog.querySelector('.order-panel select')?.options.length ?? 0,
-        time: Boolean(dialog.querySelector('.seat-estimate input[type=time]')),
+        time: Boolean(dialog.querySelector('.seat-estimate .arrival-parts')),
         seatSource: [...dialog.querySelectorAll('a')].some(link => link.textContent.includes('席數來源')),
         seats: dialog.querySelector('.seat-output')?.textContent ?? '',
         wrongAddressButton: [...dialog.querySelectorAll('a')].some(link =>
@@ -63,8 +63,9 @@ async function run() {
     assert.equal(await page.locator('dialog').isVisible(),true);
     const map = page.locator('dialog iframe[title*="Google 地圖"]');
     const mapUrl = new URL(await map.getAttribute('src'));
-    assert.equal(mapUrl.searchParams.get('q'),'一中豐仁冰 臺中市北區育才街3巷4號之6');
+    assert.equal(mapUrl.searchParams.get('daddr'),'一中豐仁冰 臺中市北區育才街3巷4號之6');
     assert.equal(mapUrl.searchParams.get('output'),'embed');
+    assert.match(mapUrl.searchParams.get('saddr'),/三民校區/);
     const routeRequests = [];
     await page.route('https://valhalla1.openstreetmap.de/**', async request => {
       const url = new URL(request.request().url());
@@ -82,15 +83,24 @@ async function run() {
       {lat:24.14754,lon:120.68437},{lat:24.14896,lon:120.686528},{lat:24.14754,lon:120.68437}
     ]);
     assert.equal(routeRequests[0].costing,'motor_scooter');
+    const scooterMap = new URL(await map.getAttribute('src'));
+    assert.equal(scooterMap.searchParams.get('saddr'),'24.14754,120.68437');
+    assert.equal(scooterMap.searchParams.get('dirflg'),'l');
     assert.equal(await page.locator('[data-emission="traffic"]').textContent(),'0.173 kg CO₂e');
     await page.getByLabel('交通方式').selectOption('bike');
     await page.getByText(/單車 · 去程 0\.50 km · 回程 0\.65 km · 來回 1\.15 km/).first().waitFor();
     assert.equal(await page.locator('[data-emission="traffic"]').textContent(),'0.000 kg CO₂e');
+    assert.equal(new URL(await map.getAttribute('src')).searchParams.get('dirflg'),'b');
     await page.getByLabel('交通方式').selectOption('scooter');
     await page.getByRole('button',{name:'恢復校區距離'}).click();
-    assert.equal(new URL(await map.getAttribute('src')).searchParams.get('q'),mapUrl.searchParams.get('q'));
+    assert.equal(new URL(await map.getAttribute('src')).searchParams.get('daddr'),mapUrl.searchParams.get('daddr'));
     assert.equal(await page.locator('dialog').isVisible(),true);
-    assert.equal(await page.getByRole('link',{name:/Google Maps 路線/}).count(),0);
+    const google = page.getByRole('link',{name:/在 Google 地圖查看.*路線/});
+    await page.getByLabel('交通方式').selectOption('transit');
+    assert.equal(new URL(await google.getAttribute('href')).searchParams.get('travelmode'),'transit');
+    assert.equal(new URL(await map.getAttribute('src')).searchParams.get('dirflg'),'r');
+    assert.equal(await page.locator('[data-emission="traffic"]').textContent(),'僅提供餐點估算');
+    await page.getByLabel('交通方式').selectOption('scooter');
     assert.match(await page.locator('.order-panel').textContent(),/步行去程約 0\.27 km · 來回約 0\.54 km/);
     assert.equal(await page.locator('[data-emission="traffic"]').textContent(),'0.048 kg CO₂e');
     assert.match(await page.locator('.seat-estimate').textContent(),/18–24 席/);
@@ -107,9 +117,11 @@ async function run() {
     assert.equal(await page.locator('dialog iframe[title*="Google 地圖"]').count(),1);
     assert.match(await page.locator('.seat-estimate').textContent(),/總座位約 20 席/);
     assert.match(await page.locator('.seat-output').textContent(),/剩 2–8 席/);
-    await page.getByLabel('到店時間').fill('17:30');
+    await page.getByLabel('到店小時').selectOption('17');
+    await page.getByLabel('到店分鐘').selectOption('30');
     assert.match(await page.locator('.seat-output').textContent(),/離峰/);
-    await page.getByLabel('到店時間').fill('14:00');
+    await page.getByLabel('到店小時').selectOption('14');
+    await page.getByLabel('到店分鐘').selectOption('00');
     await page.getByLabel('日期類型').selectOption('weekend');
     assert.match(await page.locator('.seat-output').textContent(),/剩 0–5 席/);
     await page.keyboard.press('Escape');
@@ -150,13 +162,13 @@ async function run() {
       const layout = await page.locator('#detail-body').evaluate(body => {
         const close = document.querySelector('#detail .close');
         const closeTop = close.getBoundingClientRect().top;
-        const time = body.querySelector('input[type=time]').getBoundingClientRect();
+        const time = [...body.querySelectorAll('.arrival-parts select')].map(control => control.getBoundingClientRect());
         const seat = body.querySelector('.seat-estimate').getBoundingClientRect();
         const map = body.querySelector('iframe').getBoundingClientRect();
         const bounds = body.getBoundingClientRect();
         body.scrollTop = body.scrollHeight;
         return {
-          timeFits: time.width > 0 && time.left >= seat.left && time.right <= seat.right,
+          timeFits: time.length === 2 && time.every(control => control.width > 0 && control.left >= seat.left && control.right <= seat.right),
           mapFits: map.width > 0 && map.left >= bounds.left && map.right <= bounds.right,
           noOverflow: body.scrollWidth <= body.clientWidth,
           closeStays: body.scrollTop > 0 && close.getBoundingClientRect().top === closeTop,
