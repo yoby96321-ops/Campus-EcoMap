@@ -20,7 +20,6 @@ const directorySources = {
   mall: ['https://www.chungyo.com.tw/floor', '中友百貨樓層導覽']
 };
 const menuResearchNotes = {
-  'Hello早餐店':'依一中商圈店名搜尋位置。',
   'Morni 莫尼早餐一中店':'菜單與座位參考五權路舊址資料。食記標示已搬遷，前往前請核對新址。'
 };
 const categoryArt = {
@@ -41,7 +40,6 @@ const directoryEntries = [
   ["Morni 莫尼早餐一中店", "早餐"],
   ["朝氣美濃商行", "早餐"],
   ["晨家", "早餐"],
-  ["Hello早餐店", "早餐"],
   ["阿如早餐店", "早餐"],
   ["輕時代飲品製造所", "飲品"],
   ["再睡5分鐘", "飲品"],
@@ -342,7 +340,6 @@ const storeMenus = {
   ]},
   '好犀利麻辣燙 愛廣場店': {source:'https://i-plaza.com.tw/floor/好犀利麻辣燙-20.html',items:[['極品麻辣鴨血臭豆腐','duckBloodTofu']]},
   '品香滷味燙': {source:'https://tainanfoodeat.blogspot.com/2025/12/luwei-pinxiang.html',items:[['骨仔肉','braisedPork'],['青菜','braisedGreens']]},
-  'Hello早餐店': {modeled:true,items:[['原味蛋餅（情境）','pancake'],['肉蛋吐司（情境）','porkToast'],['紅茶（情境）','tea']]},
   "那個鍋": {source:"https://www.ubereats.com/tw/store/%E9%82%A3%E5%80%8B%E9%8D%8B-%E4%B8%80%E4%B8%AD%E5%BA%97/ldm-A67HTceLIiquCgn6QQ", items:[["那個麵",'garlicNoodles'],['豆腐','braisedTofu'],['神級奶茶','milkTea']]},
   "日嚐拉麵館": {source:"https://www.ubereats.com/tw/store/%E4%B8%80%E4%B8%AD%E5%95%86%E5%9C%88-%E6%97%A5%E5%9A%90%E6%8B%89%E9%BA%B5%E9%A4%A8/Wko7ZVJUUB2MOA0pLL3TeA", items:[["九州豚骨拉麵",'tonkotsu'],['蒜香味噌拉麵','misoRamen']]},
   "JT燉飯": {source:"https://ivychi.com/jtrisotto/", items:[["煤礦工培根起司義大利麵",'carbonara'],["宇治抹茶蝦仁培根燉飯","shrimpMatchaRice"],["陽光夏威夷／明太子章魚燒雙拼披薩","seafoodPizza"]]},

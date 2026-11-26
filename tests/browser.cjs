@@ -14,7 +14,8 @@ async function run() {
     await page.goto(pathToFileURL(path.resolve(__dirname,'../index.html')).href);
     await fs.mkdir(path.resolve(__dirname,'../qa'),{recursive:true});
     await page.screenshot({path:path.resolve(__dirname,'../qa/desktop.png'),fullPage:true});
-    assert.equal(await page.locator('.card').count(),50);
+    assert.equal(await page.locator('.card').count(),49);
+    assert.equal(await page.getByRole('button',{name:/查看店家 Hello早餐店/}).count(),0);
     const audited = await page.locator('.card button').evaluateAll(buttons => buttons.map(button => {
       button.click();
       const dialog = document.querySelector('#detail');
@@ -30,10 +31,10 @@ async function run() {
       dialog.close();
       return record;
     }));
-    assert.equal(audited.length,50);
+    assert.equal(audited.length,49);
     assert.ok(audited.every(row => row.options > 0 && row.time && !row.externalGoogleDirections && !row.seatSource && row.seats.includes('席') && !row.wrongAddressButton));
     const images = page.locator('.card img');
-    assert.equal(await images.count(),50);
+    assert.equal(await images.count(),49);
     assert.equal(await images.evaluateAll(async photos => {
       photos.forEach(photo => { photo.loading = 'eager'; });
       await Promise.all(photos.map(photo => photo.decode()));
@@ -159,7 +160,7 @@ async function run() {
     await page.locator('#query').fill('不存在的店名');
     assert.equal(await page.locator('.card').count(),0);
     await page.locator('#reset').click();
-    assert.equal(await page.locator('.card').count(),50);
+    assert.equal(await page.locator('.card').count(),49);
     assert.deepEqual(errors,[]);
     for (const width of [320,390,768]) {
       await page.setViewportSize({width,height:844});

@@ -203,7 +203,6 @@ function buildOrder(item, trip) {
   fields.addEventListener('change',calculate);
   panel.append(el('h3','點餐與碳足跡'),el('p','配方重量、食材係數與用電為估算。切換餐點、份數或交通方式即可更新結果。','muted'),
     fields,distance,summary,assumptions,comparison);
-  if (menu.modeled) panel.prepend(el('p','同店型餐點情境 · 僅供碳排估算，實際供應以門市為準。','muted'));
   if (menuSource) panel.append(menuSource);
   mode.addEventListener('change',() => {
     trip.mode = mode.value;

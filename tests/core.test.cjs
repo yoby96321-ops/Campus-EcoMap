@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {roundTripDistance, storeMenus, seatingFor, estimateSeats, mealProfiles, estimateMeal, features, restaurants, modes, emissions, selectRestaurants, mapEmbedUrl, googleDirectionsUrl, googleDirectionsEmbedUrl} = require('../data.js');
 
 test('公開店家資料具有唯一 ID、合法距離與設施狀態', () => {
-  assert.equal(restaurants.length, 50);
+  assert.equal(restaurants.length, 49);
   const records = restaurants;
   assert.equal(new Set(records.map(item => item.id)).size, records.length);
   for (const item of records) {
@@ -72,8 +72,7 @@ test('店家菜單資料只列個別門市品項，每道都有可用配方', ()
   for (const [name, menu] of Object.entries(storeMenus)) {
     const store = stores.find(item => item.name === name);
     assert.ok(store,name);
-    if (!menu.modeled) assert.equal(new URL(menu.source).protocol,'https:');
-    if (menu.modeled) assert.equal(menu.source,undefined);
+    assert.equal(new URL(menu.source).protocol,'https:');
     assert.ok(menu.items.length);
     assert.equal(new Set(menu.items.map(([,id])=>id)).size,menu.items.length);
     for (const [title,id] of menu.items) {
@@ -99,7 +98,8 @@ test('公開店家以各據點步行去回程計算，缺少資料保留空值',
   assert.equal(roundTripDistance({km:0.3}),null);
   assert.equal(roundTripDistance({walking:{outMeters:150,backMeters:190}}),0.34);
   const sorted = selectRestaurants(restaurants,'',[],'near');
-  assert.ok(sorted.slice(-2).every(shop=>!shop.walking));
+  assert.deepEqual(sorted.filter(shop=>!shop.walking).map(shop=>shop.name),['Morni 莫尼早餐一中店']);
+  assert.equal(sorted.at(-1).name,'Morni 莫尼早餐一中店');
 });
 test('五種交通方式正確傳給 Google 地圖', () => {
   const expected = {walk:'walking',bike:'bicycling',scooter:'two-wheeler',car:'driving',transit:'transit'};
