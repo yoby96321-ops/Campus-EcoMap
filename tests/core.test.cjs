@@ -20,7 +20,7 @@ test('公開店家資料具有唯一 ID、合法距離與設施狀態', () => {
   }
 });
 test('可量化的往返交通係數與 0.5 km 已知答案', () => {
-  assert.deepEqual(Object.values(modes).filter(([,rate]) => rate != null).map(([,rate]) => emissions(0.5, rate)), [0,0,0.09,0.2]);
+  assert.deepEqual(Object.values(modes).map(([,rate]) => emissions(0.5, rate)), [0,0,0.09,0.2,0.078]);
   assert.equal(emissions(0, 0.2),0);
 });
 test('拒絕負值、空值、非數值及無限大', () => {

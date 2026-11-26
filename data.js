@@ -5,7 +5,7 @@ const modes = {
   bike:['單車',0,'bicycling'],
   scooter:['機車',0.09,'two-wheeler'],
   car:['汽車',0.20,'driving'],
-  transit:['大眾運輸',null,'transit']
+  transit:['大眾運輸',0.078,'transit']
 };
 const restaurants = [
   { id:'fried', name:'一中豪大雞排', kind:'炸物', art:'fried', source:'https://yizhong.taiwan-hong.com/store_detail.php?id=5', sourceName:'一中商圈店家頁', note:'商圈資料列有雞排及其他炸物。' },

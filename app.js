@@ -129,6 +129,7 @@ $('my-location').addEventListener('click',() => {
   },unavailable,{timeout:10000,maximumAge:60000});
 });
 const mealAmount = value => value.toFixed(3) + ' kg CO₂e';
+const transitBasis = '已採燃油市區公車係數 ' + modes.transit[1] + ' kg CO₂e／人公里。';
 function buildOrder(item, trip) {
   const panel = el('section','','order-panel');
   const menu = storeMenus[item.name];
@@ -173,8 +174,9 @@ function buildOrder(item, trip) {
   comparison.append(el('summary','比較交通方式'),transportRows);
   function updateComparison() {
     comparison.hidden = trip.located;
-    transportRows.replaceChildren(...Object.values(modes).map(([label,factor]) =>
-      el('li',label + ' ' + (campusKm == null || factor == null ? '僅提供餐點估算' : mealAmount(campusKm * factor)))));
+    transportRows.replaceChildren(...Object.entries(modes).map(([key,[label,factor]]) =>
+      el('li',label + (key === 'transit' ? '（市區公車情境）' : '') + ' ' +
+        (campusKm == null ? '僅提供餐點估算' : mealAmount(campusKm * factor)))));
   }
   function calculate() {
     const profile = mealProfiles[pick.value];
@@ -189,7 +191,7 @@ function buildOrder(item, trip) {
     }
     const meal = estimateMeal(profile,portions.valueAsNumber);
     const factor = modes[mode.value][1];
-    const traffic = km == null || factor == null ? null : km * factor;
+    const traffic = km == null ? null : km * factor;
     for (const [key,value] of Object.entries({
       ingredients:meal.ingredients,cooking:meal.cooking,meal:meal.total,traffic,total:traffic == null ? null : meal.total+traffic
     })) values.get(key).textContent = value == null ? '僅提供餐點估算' : mealAmount(value);
@@ -221,7 +223,7 @@ function buildOrder(item, trip) {
 
 let nextRouteRequest = 0;
 async function fetchStoreRoute(origin, destination, mode, signal) {
-  const costing = {walk:'pedestrian',bike:'bicycle',scooter:'motor_scooter',car:'auto'}[mode];
+  const costing = {walk:'pedestrian',bike:'bicycle',scooter:'motor_scooter',car:'auto',transit:'auto'}[mode];
   const locations = [origin,destination,origin].map(([lat,lon]) => ({lat,lon}));
   const url = new URL('https://valhalla1.openstreetmap.de/route');
   url.searchParams.set('json',JSON.stringify({locations,costing,format:'osrm',shape_format:'geojson'}));
@@ -270,8 +272,13 @@ function buildStoreMap(item, trip) {
     if (!trip.located) {
       if (trip.mode === 'transit') {
         status.textContent = '下方地圖顯示大眾運輸路線。';
+        trip.update(null,item.walking
+          ? distanceText(item) + '。大眾運輸碳排以校區步行往返距離代估公車里程。' + transitBasis
+          : '門市缺少可用距離，暫以餐點估算。');
       } else {
         status.textContent = introduction;
+        trip.update(null,distanceText(item) +
+          (item.walking ? '。各交通方式使用同一段步行距離比較，實際車行路線可能不同。' : ''));
       }
       return;
     }
@@ -280,17 +287,12 @@ function buildStoreMap(item, trip) {
     controller = current;
     const mode = trip.mode;
     const label = modes[mode][0];
-    if (mode === 'transit') {
-      status.textContent = '下方地圖顯示從你的位置出發的大眾運輸路線。';
-      trip.update(null,'大眾運輸路線與距離由 Google 地圖提供。');
-      return;
-    }
     if (!destination) {
       status.textContent = 'Google 地圖以店名搜尋，請確認門市。';
       trip.update(null,'門市沒有可用座標，暫以餐點估算。');
       return;
     }
-    const loading = '正在查詢' + label + '往返路線…';
+    const loading = mode === 'transit' ? '正在取得公車估算用的道路往返距離…' : '正在查詢' + label + '往返路線…';
     trip.update(null,loading);
     status.textContent = loading;
     const timer = setTimeout(() => current.abort('timeout'),12000);
@@ -300,7 +302,9 @@ function buildStoreMap(item, trip) {
       const [out,back] = route.legs.map(leg => leg.distance);
       const km = meters => (meters / 1000).toFixed(2) + ' km';
       const detail = label + ' · 去程 ' + km(out) + ' · 回程 ' + km(back) + ' · 來回 ' + km(out + back);
-      status.textContent = detail + '（OpenStreetMap 路網估算，Google 地圖可能採用不同路線）';
+      status.textContent = mode === 'transit'
+        ? detail + '。以 OpenStreetMap 道路距離代估公車里程。' + transitBasis
+        : detail + '（OpenStreetMap 路網估算，Google 地圖可能採用不同路線）';
       trip.update(out + back,status.textContent);
     } catch {
       if (controller !== current || !section.isConnected || !section.closest('dialog').open) return;
@@ -316,7 +320,6 @@ function buildStoreMap(item, trip) {
     controller = null;
     prior?.abort();
     trip.located = false;
-    trip.update(null,distanceText(item) + (item.walking ? '（三民校區步行距離參考）' : ''));
     trip.refresh();
     locate.disabled = false;
     locate.textContent = '顯示我的位置與路線';
