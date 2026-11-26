@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {roundTripDistance, storeMenus, seatingFor, estimateSeats, mealProfiles, estimateMeal, features, restaurants, modes, emissions, selectRestaurants, mapEmbedUrl, googleDirectionsUrl, googleDirectionsEmbedUrl} = require('../data.js');
+const {roundTripDistance, storeMenus, seatingFor, estimateSeats, mealProfiles, estimateMeal, features, restaurants, modes, emissions, selectRestaurants, mapEmbedUrl, googleDirectionsUrl, googleDirectionsEmbedUrl, menuPrice} = require('../data.js');
 
 test('公開店家資料具有唯一 ID、合法距離與設施狀態', () => {
   assert.equal(restaurants.length, 49);
@@ -115,4 +115,17 @@ test('五種交通方式正確傳給 Google 地圖', () => {
     assert.equal(embed.searchParams.get('dirflg'),{walk:'w',bike:'b',scooter:'l',car:'d',transit:'r'}[mode]);
   }
   assert.match(new URL(googleDirectionsUrl(restaurants[1],'transit')).searchParams.get('origin'),/三民校區/);
+});
+
+test('每個店家品項有正數單價，且參考價保留來源', () => {
+  for (const shop of restaurants) {
+    for (const [,id] of storeMenus[shop.name].items) {
+      const price = menuPrice(shop,id);
+      assert.ok(Number.isInteger(price.amount) && price.amount > 0,shop.name + ' ' + id);
+      if (price.source) assert.equal(new URL(price.source).protocol,'https:');
+    }
+  }
+  const ot = restaurants.find(shop=>shop.name==='一中大本營');
+  assert.equal(menuPrice(ot,'otEgg').amount,75);
+  assert.equal(menuPrice(ot,'taroEgg').source,null);
 });

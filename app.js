@@ -133,11 +133,12 @@ const transitBasis = '已採燃油市區公車係數 ' + modes.transit[1] + ' kg
 const purchases = new Map();
 const moneyFormat = new Intl.NumberFormat('zh-TW',{minimumFractionDigits:0,maximumFractionDigits:2});
 const money = cents => 'NT$' + moneyFormat.format(cents / 100);
-function recordPurchase(item, title, portions, cents) {
-  const record = purchases.get(item.id) ?? {orders:0,portions:0,cents:0,items:new Map()};
+function recordPurchase(item, title, portions, cents, estimated) {
+  const record = purchases.get(item.id) ?? {orders:0,portions:0,cents:0,items:new Map(),estimated:false};
   record.orders++;
   record.portions += portions;
   record.cents += cents;
+  record.estimated ||= estimated;
   record.items.set(title,(record.items.get(title) ?? 0) + portions);
   purchases.delete(item.id);
   purchases.set(item.id,record);
@@ -149,7 +150,12 @@ function buildOrder(item, trip) {
   const panel = el('section','','order-panel');
   const menu = storeMenus[item.name];
   const pick = el('select');
-  for (const [name,id] of menu.items) pick.add(new Option(name,id));
+  const prices = new Map();
+  for (const [name,id] of menu.items) {
+    const price = menuPrice(item,id);
+    prices.set(id,price);
+    pick.add(new Option(name + ' · ' + (price.source ? '' : '約 ') + money(price.amount * 100),id));
+  }
   const menuSource = menu.source ? link('查看品項來源 ↗',menu.source) : null;
   const portions = el('input');
   Object.assign(portions,{type:'number',min:'1',max:'99',step:'1',value:'1',required:true});
@@ -188,32 +194,21 @@ function buildOrder(item, trip) {
   const transportRows = el('ul');
   comparison.append(el('summary','比較交通方式'),transportRows);
   const purchase = el('form','','purchase-form');
-  const label = el('label','實付單價（NT$）');
-  const unitPrice = el('input');
-  Object.assign(unitPrice,{type:'number',inputMode:'decimal',min:'0',max:'999999.99',step:'0.01',required:true,
-    placeholder:'輸入單價'});
-  label.append(unitPrice);
+  const subtotal = el('output','','purchase-subtotal');
   const confirm = el('button','確認購買','button');
   confirm.type = 'submit';
   const purchaseStatus = el('p','','purchase-feedback');
   purchaseStatus.setAttribute('role','status');
-  const purchaseNote = el('p','在本頁記錄支出，不會向店家下單或付款。','muted');
-  function showPriceReference() {
-    const sourcePrice = item.unitPrices?.[pick.value];
-    unitPrice.value = sourcePrice ?? '';
-    purchaseNote.textContent = (sourcePrice == null ? '' : '單價已帶入公開參考價，可改為實付金額。') +
-      '只在本頁記錄支出，不會向店家下單或付款。';
-  }
-  purchase.append(label,confirm,purchaseNote,purchaseStatus);
-  pick.addEventListener('change',showPriceReference);
-  showPriceReference();
+  const purchaseNote = el('p','','muted');
+  purchase.append(subtotal,confirm,purchaseNote,purchaseStatus);
   purchase.addEventListener('submit',event => {
     event.preventDefault();
-    if (!portions.reportValidity() || !unitPrice.reportValidity() || !pick.selectedOptions.length) return;
-    const title = pick.selectedOptions[0].text;
+    const price = prices.get(pick.value);
+    if (!price || !portions.reportValidity()) return;
+    const [title] = menu.items[pick.selectedIndex];
     const quantity = portions.valueAsNumber;
-    const cents = Math.round(unitPrice.valueAsNumber * 100) * quantity;
-    const record = recordPurchase(item,title,quantity,cents);
+    const cents = price.amount * 100 * quantity;
+    const record = recordPurchase(item,title,quantity,cents,!price.source);
     purchaseStatus.textContent = '已記錄 ' + title + ' × ' + quantity + ' · ' + money(cents) +
       '。本店累計 ' + money(record.cents) + '。';
   });
@@ -225,8 +220,20 @@ function buildOrder(item, trip) {
   }
   function calculate() {
     const profile = mealProfiles[pick.value];
+    const price = prices.get(pick.value);
     if (menuSource) menuSource.href = menu.items[pick.selectedIndex]?.[2] ?? menu.source;
     const valid = Boolean(profile && portions.validity.valid);
+    confirm.disabled = !valid || !price;
+    subtotal.textContent = confirm.disabled
+      ? '選擇品項並輸入 1–99 份'
+      : '小計 ' + (price.source ? '' : '約 ') + money(price.amount * 100 * portions.valueAsNumber) +
+        '（' + money(price.amount * 100) + ' × ' + portions.valueAsNumber + '）';
+    purchaseNote.replaceChildren(price?.source ? '公開參考價，現場價格可能不同。' : '預估價，供本頁記帳參考。');
+    if (price?.source) {
+      const source = link('價格來源 ↗',price.source);
+      source.classList.remove('button');
+      purchaseNote.append(' ',source);
+    }
     rows.hidden = !valid;
     assumptions.hidden = !valid;
     message.hidden = valid;
@@ -240,7 +247,7 @@ function buildOrder(item, trip) {
     for (const [key,value] of Object.entries({
       ingredients:meal.ingredients,cooking:meal.cooking,meal:meal.total,traffic,total:traffic == null ? null : meal.total+traffic
     })) values.get(key).textContent = value == null ? '僅提供餐點估算' : mealAmount(value);
-    ingredients.replaceChildren(el('li','選擇的品項：' + pick.selectedOptions[0].text),...profile.ingredients.map(([name,grams,factor]) =>
+    ingredients.replaceChildren(el('li','選擇的品項：' + menu.items[pick.selectedIndex][0]),...profile.ingredients.map(([name,grams,factor]) =>
       el('li',name + ' ' + grams + ' g × ' + factor + ' kg CO₂e／kg')),
       el('li','每份分攤用電 ' + profile.kwh + ' kWh × 0.467 kg CO₂e／kWh'));
   }
@@ -483,9 +490,11 @@ function renderCards(animate = false) {
   const pins = new Map([...purchases.keys()].map((id,index) => [id,index + 1]));
   matches.sort((a,b) => (pins.get(b.id) ?? 0) - (pins.get(a.id) ?? 0));
   const spend = $('purchase-total');
+  const allPurchases = [...purchases.values()];
   spend.hidden = purchases.size === 0;
   spend.textContent = purchases.size
-    ? '本次總花費 ' + money([...purchases.values()].reduce((total,record) => total + record.cents,0)) +
+    ? '本次總花費 ' + money(allPurchases.reduce((total,record) => total + record.cents,0)) +
+      (allPurchases.some(record => record.estimated) ? '（含預估價）' : '') +
       ' · 已購買 ' + purchases.size + ' 家 · 重新整理後清除'
     : '';
   grid.replaceChildren(...matches.map(item => {
@@ -496,7 +505,8 @@ function renderCards(animate = false) {
     const meta = price(item) + ' · ' + distance;
     const record = purchases.get(item.id);
     const description = record
-      ? '已購買 · ' + record.orders + ' 次／' + record.portions + ' 份 · 累計 ' + money(record.cents)
+      ? '已購買 · ' + record.orders + ' 次／' + record.portions + ' 份 · 累計 ' + money(record.cents) +
+        (record.estimated ? '（含預估價）' : '')
       : '';
     const items = record ? [...record.items].map(([title,quantity]) => title + ' × ' + quantity).join('、') : '';
     const existing = previous.get(item.id);

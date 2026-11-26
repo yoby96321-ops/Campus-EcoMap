@@ -109,7 +109,6 @@ const storeReferences = {
   '日日利海盜飯糰': {
     address:'臺中市北區三民路三段136-6號',
     price:'辣腸飯糰 NT$90（2024 報導參考）',
-    unitPrices:{pirateRice:90},
     priceSource:'https://www.youtube.com/watch?v=rFrvkUtZ-zU'
   },
   '海底撈火鍋 中友店': {
@@ -117,6 +116,50 @@ const storeReferences = {
     priceSource:'https://inline.app/order/-LamXb5SAQN7JcJfyRKi%3Ainline-live-2a466/-LfvyxgdSElc1INrAwIM?language=zh-tw'
   }
 };
+const otPriceList = {
+  source:'https://www.ubereats.com/tw-en/store/一中商圈-ot蛋餅/oGSN3EpkTwSL8Zba4aK9XQ',
+  items:{otEgg:75}
+};
+const publicMenuPrices = {
+  'OT蛋餅':otPriceList,
+  '一中大本營':otPriceList,
+  '日日利海盜飯糰':{source:'https://www.youtube.com/watch?v=rFrvkUtZ-zU',items:{pirateRice:90}},
+  '阿里山鐵道紅茶冰':{
+    source:'https://www.ubereats.com/tw/store/一中商圈-阿里山鐵道紅茶-三民店/fqr7BtPjWDuucZgVFf1pEw',
+    items:{tea:30,winterTea:30,freshTea:55,winterMilk:45}
+  },
+  '王子神谷日式厚鬆餅':{
+    source:'https://www.ubereats.com/tw/store/王子神谷日式厚鬆餅台中一中店/396mGDfoSVebsi-5XWPsRA',
+    items:{cookieSouffle:185,appleSouffle:215}
+  },
+  '統元豆花':{
+    source:'https://ifoodie.tw/post/633b990fb4478b72345faf39',
+    items:{soyPudding:50}
+  },
+  '第一名地瓜球':{source:'https://feliz.tw/20240322/',items:{sweetPotatoBalls:30,largeSweetPotatoBalls:50}}
+};
+// Menu items without a public price use a planning estimate for the selected portion.
+const estimatedMenuPrices = {
+  pancake:45, cheesePancake:55, taroEgg:70, plainPirateRice:70, soupDumplings:30,
+  tea:30, estateTea:390, freshTea:60, doubleQMilkTea:55, milkTea:50, coffee:90,
+  winterTea:30, winterMilk:45, bobaTea:35, pearlMilkTea:45, brownSugarMilk:65,
+  taroMilk:75, lemonAloe:45, peanutSoy:55, bobaSoy:55, ice:45, dryIce:55, plumIce:40,
+  redBeanCake:20, custardCake:20, peanutCake:25, sugarCake:55, purpleCake:55, matchaCake:55,
+  springRoll:60, gimmari:70, preservedEggTofu:55, plainRice:10, garlicNoodles:30,
+  braisedTofu:65, braisedPork:45, braisedGreens:30, seaweedSoup:30, friedTaroCake:30,
+  eggTofu:45, chickenSoup:60, cheeseFishCake:30, duckBloodTofu:100, handPulledNoodles:65,
+  slicedBeef:320, slicedPork:260, friedDough:70, carbonara:180, scallopPasta:280,
+  shrimpMatchaRice:200, seafoodPizza:190, butterRamen:100, abaloneRamen:100,
+  friedDrumstick:65, drumstickBento:105, porkChopRice:100,
+  tteok:220, cheeseTteok:280, thaiGreen:238, thaiTomYum:258, thaiMilk:258
+};
+function menuPrice(store, id) {
+  const reference = publicMenuPrices[store.name];
+  const amount = reference?.items[id];
+  if (amount != null) return {amount,source:reference.source};
+  const [low,high] = budgetByKind[store.kind].split('–').map(Number);
+  return {amount:estimatedMenuPrices[id] ?? Math.round((low + high) / 10) * 5,source:null};
+}
 for (const shop of restaurants) {
   Object.assign(shop,storeReferences[shop.name]);
   shop.budget ??= 'NT$' + budgetByKind[shop.kind] + '（同類餐點預算示意）';
@@ -644,4 +687,4 @@ function estimateSeats(capacity, day, time, peaks = [['11:30','13:30'],['17:30',
   };
 }
 
-if (typeof module !== 'undefined') module.exports = {roundTripDistance, seatingStudies, seatingFor, storeMenus, straightDistance, estimateSeats, restaurants, modes, features, mealProfiles, estimateMeal, emissions, selectRestaurants, mapEmbedUrl, googleDirectionsUrl, googleDirectionsEmbedUrl};
+if (typeof module !== 'undefined') module.exports = {roundTripDistance, seatingStudies, seatingFor, storeMenus, straightDistance, estimateSeats, restaurants, modes, features, mealProfiles, estimateMeal, emissions, selectRestaurants, mapEmbedUrl, googleDirectionsUrl, googleDirectionsEmbedUrl, menuPrice};
