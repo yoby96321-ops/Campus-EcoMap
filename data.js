@@ -109,6 +109,7 @@ const storeReferences = {
   '日日利海盜飯糰': {
     address:'臺中市北區三民路三段136-6號',
     price:'辣腸飯糰 NT$90（2024 報導參考）',
+    unitPrices:{pirateRice:90},
     priceSource:'https://www.youtube.com/watch?v=rFrvkUtZ-zU'
   },
   '海底撈火鍋 中友店': {

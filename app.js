@@ -130,6 +130,21 @@ $('my-location').addEventListener('click',() => {
 });
 const mealAmount = value => value.toFixed(3) + ' kg CO₂e';
 const transitBasis = '已採燃油市區公車係數 ' + modes.transit[1] + ' kg CO₂e／人公里。';
+const purchases = new Map();
+const moneyFormat = new Intl.NumberFormat('zh-TW',{minimumFractionDigits:0,maximumFractionDigits:2});
+const money = cents => 'NT$' + moneyFormat.format(cents / 100);
+function recordPurchase(item, title, portions, cents) {
+  const record = purchases.get(item.id) ?? {orders:0,portions:0,cents:0,items:new Map()};
+  record.orders++;
+  record.portions += portions;
+  record.cents += cents;
+  record.items.set(title,(record.items.get(title) ?? 0) + portions);
+  purchases.delete(item.id);
+  purchases.set(item.id,record);
+  renderCards(true);
+  return record;
+}
+
 function buildOrder(item, trip) {
   const panel = el('section','','order-panel');
   const menu = storeMenus[item.name];
@@ -172,6 +187,36 @@ function buildOrder(item, trip) {
   const comparison = el('details');
   const transportRows = el('ul');
   comparison.append(el('summary','比較交通方式'),transportRows);
+  const purchase = el('form','','purchase-form');
+  const label = el('label','實付單價（NT$）');
+  const unitPrice = el('input');
+  Object.assign(unitPrice,{type:'number',inputMode:'decimal',min:'0',max:'999999.99',step:'0.01',required:true,
+    placeholder:'輸入單價'});
+  label.append(unitPrice);
+  const confirm = el('button','確認購買','button');
+  confirm.type = 'submit';
+  const purchaseStatus = el('p','','purchase-feedback');
+  purchaseStatus.setAttribute('role','status');
+  const purchaseNote = el('p','在本頁記錄支出，不會向店家下單或付款。','muted');
+  function showPriceReference() {
+    const sourcePrice = item.unitPrices?.[pick.value];
+    unitPrice.value = sourcePrice ?? '';
+    purchaseNote.textContent = (sourcePrice == null ? '' : '單價已帶入公開參考價，可改為實付金額。') +
+      '只在本頁記錄支出，不會向店家下單或付款。';
+  }
+  purchase.append(label,confirm,purchaseNote,purchaseStatus);
+  pick.addEventListener('change',showPriceReference);
+  showPriceReference();
+  purchase.addEventListener('submit',event => {
+    event.preventDefault();
+    if (!portions.reportValidity() || !unitPrice.reportValidity() || !pick.selectedOptions.length) return;
+    const title = pick.selectedOptions[0].text;
+    const quantity = portions.valueAsNumber;
+    const cents = Math.round(unitPrice.valueAsNumber * 100) * quantity;
+    const record = recordPurchase(item,title,quantity,cents);
+    purchaseStatus.textContent = '已記錄 ' + title + ' × ' + quantity + ' · ' + money(cents) +
+      '。本店累計 ' + money(record.cents) + '。';
+  });
   function updateComparison() {
     comparison.hidden = trip.located;
     transportRows.replaceChildren(...Object.entries(modes).map(([key,[label,factor]]) =>
@@ -202,7 +247,7 @@ function buildOrder(item, trip) {
   fields.addEventListener('input',calculate);
   fields.addEventListener('change',calculate);
   panel.append(el('h3','點餐與碳足跡'),el('p','配方重量、食材係數與用電為估算。切換餐點、份數或交通方式即可更新結果。','muted'),
-    fields,distance,summary,assumptions,comparison);
+    fields,distance,summary,purchase,assumptions,comparison);
   if (menuSource) panel.append(menuSource);
   mode.addEventListener('change',() => {
     trip.mode = mode.value;
@@ -435,15 +480,32 @@ function renderCards(animate = false) {
   if ($('sort').value === 'location') {
     matches.sort((a,b) => (recommendedDistance(a) ?? Infinity) - (recommendedDistance(b) ?? Infinity));
   }
+  const pins = new Map([...purchases.keys()].map((id,index) => [id,index + 1]));
+  matches.sort((a,b) => (pins.get(b.id) ?? 0) - (pins.get(a.id) ?? 0));
+  const spend = $('purchase-total');
+  spend.hidden = purchases.size === 0;
+  spend.textContent = purchases.size
+    ? '本次總花費 ' + money([...purchases.values()].reduce((total,record) => total + record.cents,0)) +
+      ' · 已購買 ' + purchases.size + ' 家 · 重新整理後清除'
+    : '';
   grid.replaceChildren(...matches.map(item => {
     const nearby = $('sort').value === 'location' ? recommendedDistance(item) : null;
     const distance = $('sort').value === 'location'
       ? (nearby == null ? '地圖以店名搜尋' : '距起點約 ' + nearby.toFixed(2) + ' km（直線）')
       : distanceText(item);
     const meta = price(item) + ' · ' + distance;
+    const record = purchases.get(item.id);
+    const description = record
+      ? '已購買 · ' + record.orders + ' 次／' + record.portions + ' 份 · 累計 ' + money(record.cents)
+      : '';
+    const items = record ? [...record.items].map(([title,quantity]) => title + ' × ' + quantity).join('、') : '';
     const existing = previous.get(item.id);
     if (existing) {
       existing.querySelector('.card-meta').textContent = meta;
+      const history = existing.querySelector('.purchase-history');
+      history.hidden = !record;
+      history.firstElementChild.textContent = description;
+      history.lastElementChild.textContent = items;
       return existing;
     }
     const card = el('article','','card');
@@ -461,7 +523,10 @@ function renderCards(animate = false) {
     detail.addEventListener('click',() => openDetail(item));
     const [low,high] = seatingFor(item).capacity;
     const seatLabel = high === 0 ? '外帶' : '約 ' + (low === high ? low : low + '–' + high) + ' 席';
-    body.append(el('span',[item.location, item.kind, '餐點示意'].filter(Boolean).join(' · '),'eyebrow'), title, el('p',meta,'muted card-meta'),el('p',[seatLabel,...known.filter(label => label !== features.seats)].join(' · '),'tag'),detail);
+    const history = el('div','','purchase-history');
+    history.hidden = !record;
+    history.append(el('strong',description),el('p',items));
+    body.append(el('span',[item.location, item.kind, '餐點示意'].filter(Boolean).join(' · '),'eyebrow'), title, el('p',meta,'muted card-meta'),el('p',[seatLabel,...known.filter(label => label !== features.seats)].join(' · '),'tag'),history,detail);
     card.append(photo,body);
     return card;
   }));
