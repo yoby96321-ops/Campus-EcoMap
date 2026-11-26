@@ -23,6 +23,8 @@ async function run() {
         options: dialog.querySelector('.order-panel select')?.options.length ?? 0,
         time: Boolean(dialog.querySelector('.seat-estimate .arrival-parts')),
         externalGoogleDirections: Boolean(dialog.querySelector('.store-map .actions a')),
+        removedSourceButton: [...dialog.querySelectorAll('a.button')].some(link =>
+          /一中商圈店家名單|查看菜單或價格來源/.test(link.textContent)),
         seatSource: [...dialog.querySelectorAll('a')].some(link => link.textContent.includes('席數來源')),
         seats: dialog.querySelector('.seat-output')?.textContent ?? '',
         wrongAddressButton: [...dialog.querySelectorAll('a')].some(link =>
@@ -32,6 +34,7 @@ async function run() {
       return record;
     }));
     assert.equal(audited.length,49);
+    assert.ok(audited.every(row => !row.removedSourceButton));
     assert.ok(audited.every(row => row.options > 0 && row.time && !row.externalGoogleDirections && !row.seatSource && row.seats.includes('席') && !row.wrongAddressButton));
     const images = page.locator('.card img');
     assert.equal(await images.count(),49);
@@ -60,6 +63,13 @@ async function run() {
     await page.locator('#query').fill('豐仁冰');
     assert.equal(await page.locator('.card').count(),1);
     const detail = page.getByRole('button',{name:'查看店家 一中豐仁冰'});
+    const photo = page.locator('.card .food');
+    await photo.scrollIntoViewIfNeeded();
+    const bounds = await photo.boundingBox();
+    assert.ok(bounds);
+    await page.mouse.click(bounds.x + bounds.width / 2,bounds.y + bounds.height / 2);
+    assert.match(await page.locator('#detail-title').textContent(),/一中豐仁冰/);
+    await page.keyboard.press('Escape');
     await detail.focus();
     await page.keyboard.press('Enter');
     assert.equal(await page.locator('dialog').isVisible(),true);

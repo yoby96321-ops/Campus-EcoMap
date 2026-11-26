@@ -444,8 +444,9 @@ function openDetail(item) {
 
   $('detail-body').replaceChildren(title,...(item.note ? [el('p',item.note)] : []),el('p',[item.address,price(item),distanceText(item)].filter(Boolean).join(' · ')),buildOrder(item,trip),statuses,buildSeatEstimate(item));
   if (item.source) {
-    actions.append(link(item.sourceName + ' ↗', item.source));
-    $('detail-body').append(actions);
+    if (item.sourceName !== '一中商圈店家名單') actions.append(link(item.sourceName + ' ↗', item.source));
+    if (item.seatSource) actions.append(link('內用座位來源 ↗',item.seatSource));
+    if (actions.childElementCount) $('detail-body').append(actions);
   }
   const map = buildStoreMap(item,trip);
   if (item.walking) {
@@ -461,8 +462,6 @@ function openDetail(item) {
     }
   }
   $('detail-body').append(map);
-  if (item.seatSource) actions.append(link('內用座位來源 ↗',item.seatSource));
-  if (item.priceSource) actions.append(link('查看菜單或價格來源 ↗',item.priceSource));
   dialog.showModal();
   $('detail-body').scrollTop = 0;
 }
